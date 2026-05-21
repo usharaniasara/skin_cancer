@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "C:\skin\backend\test_weights.py", line 15, in <module>
+    model.load_state_dict(ckpt)
+  File "C:\skin\backend\venv\lib\site-packages\torch\nn\modules\module.py", line 2635, in load_state_dict
+    raise RuntimeError(
+RuntimeError: Error(s) in loading state_dict for SwinTransformer:
+	size mismatch for head.fc.weight: copying a param with shape torch.Size([8, 1024]) from checkpoint, the shape in current model is torch.Size([9, 1024]).
+	size mismatch for head.fc.bias: copying a param with shape torch.Size([8]) from checkpoint, the shape in current model is torch.Size([9]).
+
+
+Error(s) in loading state_dict for SwinTransformer:
+	size mismatch for head.fc.weight: copying a param with shape torch.Size([8, 1024]) from checkpoint, the shape in current model is torch.Size([9, 1024]).
+	size mismatch for head.fc.bias: copying a param with shape torch.Size([8]) from checkpoint, the shape in current model is torch.Size([9]).
