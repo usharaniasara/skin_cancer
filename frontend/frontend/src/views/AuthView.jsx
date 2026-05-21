@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Fingerprint, ShieldAlert, Cpu, Sparkles, Globe, User as UserIcon, ChevronRight } from 'lucide-react';
+import { Lock, Fingerprint, ShieldAlert, Cpu, Sparkles, Globe, User as UserIcon, ChevronRight, Check, Mail } from 'lucide-react';
 
 /**
  * AuthView: Handles user registration and login.
@@ -11,7 +11,9 @@ import { Lock, Fingerprint, ShieldAlert, Cpu, Sparkles, Globe, User as UserIcon,
 export function AuthView({ setAuthToken }) {
   // --- UI View State ---
   const [isLoginMode, setIsLoginMode] = useState(true);
+  const [isOtpMode, setIsOtpMode] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // --- Form Input State ---
@@ -20,6 +22,7 @@ export function AuthView({ setAuthToken }) {
     password: '',
     name: ''
   });
+  const [otpCode, setOtpCode] = useState('');
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -32,10 +35,12 @@ export function AuthView({ setAuthToken }) {
     event.preventDefault();
     if (!formData.email || !formData.password || (!isLoginMode && !formData.name)) {
       setErrorMessage('Please provide all clinical credentials.');
+      setSuccessMessage('');
       return;
     }
 
     setErrorMessage('');
+    setSuccessMessage('');
     setIsSubmitting(true);
     const endpoint = isLoginMode ? '/api/login' : '/api/register';
     
@@ -48,12 +53,53 @@ export function AuthView({ setAuthToken }) {
       
       const data = await response.json();
       if (response.ok) {
-        setAuthToken(data.token);
+        if (data.requires_otp) {
+          setIsOtpMode(true);
+          
+          if (data.demo_otp) {
+            setOtpCode(data.demo_otp);
+            setSuccessMessage(`Demo Mode: OTP auto-filled (${data.demo_otp})`);
+          } else {
+            setSuccessMessage(data.message || 'OTP sent to your email.');
+          }
+        } else {
+          setAuthToken(data.token);
+        }
       } else {
         setErrorMessage(data.error || 'Authentication failed. Verify credentials.');
       }
     } catch (error) {
       setErrorMessage('Network error. Unable to connect to diagnostic registry.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOtpSubmit = async (event) => {
+    event.preventDefault();
+    if (!otpCode || otpCode.length !== 6) {
+      setErrorMessage('Please enter the 6-digit clinical verification code.');
+      return;
+    }
+    setErrorMessage('');
+    setSuccessMessage('');
+    setIsSubmitting(true);
+    
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email, otp_code: otpCode })
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        setAuthToken(data.token);
+      } else {
+        setErrorMessage(data.error || 'Invalid verification code.');
+      }
+    } catch (error) {
+      setErrorMessage('Network error. Unable to verify OTP.');
     } finally {
       setIsSubmitting(false);
     }
@@ -87,17 +133,18 @@ export function AuthView({ setAuthToken }) {
         <Card className="p-10 premium-card border-violet-100 bg-white shadow-2xl relative rounded-[2.5rem] overflow-hidden">
           <div className="text-center mb-12">
             <h2 className="text-xl font-black text-slate-900 tracking-tighter uppercase mb-2">
-              {isLoginMode ? 'Clinician Entry' : 'Clinical Registration'}
+              {isOtpMode ? 'Security Verification' : (isLoginMode ? 'Clinician Entry' : 'Clinical Registration')}
             </h2>
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] px-10 leading-relaxed">
-              Authorized diagnostic synchronization only.
+              {isOtpMode ? 'Enter the 6-digit code sent to your email.' : 'Authorized diagnostic synchronization only.'}
             </p>
           </div>
 
-          <form onSubmit={handleAuthSubmit} className="space-y-6">
+          <form onSubmit={isOtpMode ? handleOtpSubmit : handleAuthSubmit} className="space-y-6">
             <AnimatePresence mode="wait">
-              {!isLoginMode && (
+              {!isOtpMode && !isLoginMode && (
                 <motion.div 
+                  key="name-field"
                   initial={{ opacity: 0, height: 0 }} 
                   animate={{ opacity: 1, height: 'auto' }} 
                   exit={{ opacity: 0, height: 0 }}
@@ -117,36 +164,61 @@ export function AuthView({ setAuthToken }) {
               )}
             </AnimatePresence>
             
-            <div className="group/field">
-              <label className="text-[11px] font-black uppercase tracking-widest ml-1 mb-3 block text-slate-400 group-focus-within/field:text-violet-600 transition-colors">Email Registry</label>
-              <div className="relative">
-                <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within/field:text-violet-600 transition-colors" />
-                <input 
-                  type="email" 
-                  placeholder="clinician@dermisyn.ai"
-                  className="w-full h-14 bg-slate-50 border border-slate-100 rounded-2xl px-12 font-bold text-sm text-slate-900 focus:outline-none focus:border-violet-600 focus:bg-white transition-all shadow-inner"
-                  value={formData.email} onChange={e => handleInputChange('email', e.target.value)}
-                />
-              </div>
-            </div>
-            
-            <div className="group/field">
-              <label className="text-[11px] font-black uppercase tracking-widest ml-1 mb-3 block text-slate-400 group-focus-within/field:text-violet-600 transition-colors">Security Key</label>
-              <div className="relative">
-                <Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within/field:text-violet-600 transition-colors" />
-                <input 
-                  type="password" 
-                  placeholder="••••••••"
-                  className="w-full h-14 bg-slate-50 border border-slate-100 rounded-2xl px-12 font-bold text-sm text-slate-900 focus:outline-none focus:border-violet-600 focus:bg-white transition-all shadow-inner"
-                  value={formData.password} onChange={e => handleInputChange('password', e.target.value)}
-                />
-              </div>
-            </div>
+            {!isOtpMode ? (
+              <>
+                <div className="group/field">
+                  <label className="text-[11px] font-black uppercase tracking-widest ml-1 mb-3 block text-slate-400 group-focus-within/field:text-violet-600 transition-colors">Email Registry</label>
+                  <div className="relative">
+                    <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within/field:text-violet-600 transition-colors" />
+                    <input 
+                      type="email" 
+                      placeholder="clinician@dermisyn.ai"
+                      className="w-full h-14 bg-slate-50 border border-slate-100 rounded-2xl px-12 font-bold text-sm text-slate-900 focus:outline-none focus:border-violet-600 focus:bg-white transition-all shadow-inner"
+                      value={formData.email} onChange={e => handleInputChange('email', e.target.value)}
+                    />
+                  </div>
+                </div>
+                
+                <div className="group/field">
+                  <label className="text-[11px] font-black uppercase tracking-widest ml-1 mb-3 block text-slate-400 group-focus-within/field:text-violet-600 transition-colors">Security Key</label>
+                  <div className="relative">
+                    <Fingerprint className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within/field:text-violet-600 transition-colors" />
+                    <input 
+                      type="password" 
+                      placeholder="••••••••"
+                      className="w-full h-14 bg-slate-50 border border-slate-100 rounded-2xl px-12 font-bold text-sm text-slate-900 focus:outline-none focus:border-violet-600 focus:bg-white transition-all shadow-inner"
+                      value={formData.password} onChange={e => handleInputChange('password', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="group/field">
+                <label className="text-[11px] font-black uppercase tracking-widest ml-1 mb-3 block text-slate-400 group-focus-within/field:text-violet-600 transition-colors">Verification Code</label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within/field:text-violet-600 transition-colors" />
+                  <input 
+                    type="text" 
+                    placeholder="123456"
+                    maxLength={6}
+                    className="w-full h-14 bg-slate-50 border border-slate-100 rounded-2xl px-12 font-bold text-lg tracking-[0.5em] text-slate-900 focus:outline-none focus:border-violet-600 focus:bg-white transition-all shadow-inner text-center"
+                    value={otpCode} onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                  />
+                </div>
+              </motion.div>
+            )}
 
             {errorMessage && (
               <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-3">
                 <ShieldAlert className="w-5 h-5 text-rose-500" />
                 <p className="text-[11px] font-black text-rose-600 uppercase tracking-widest">{errorMessage}</p>
+              </motion.div>
+            )}
+
+            {successMessage && (
+              <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-3">
+                <Check className="w-5 h-5 text-emerald-500" />
+                <p className="text-[11px] font-black text-emerald-600 uppercase tracking-widest">{successMessage}</p>
               </motion.div>
             )}
 
@@ -156,17 +228,25 @@ export function AuthView({ setAuthToken }) {
               isLoading={isSubmitting}
             >
               <Cpu className="w-5 h-5" />
-              {isLoginMode ? 'Initialize Sync' : 'Grant Registry Access'}
+              {isOtpMode ? 'Verify Clinical Access' : (isLoginMode ? 'Initialize Sync' : 'Grant Registry Access')}
             </Button>
           </form>
 
           <footer className="mt-10 text-center pt-8 border-t border-slate-50">
             <button 
               type="button"
-              onClick={() => { setIsLoginMode(!isLoginMode); setErrorMessage(''); }} 
+              onClick={() => { 
+                if (isOtpMode) {
+                  setIsOtpMode(false);
+                } else {
+                  setIsLoginMode(!isLoginMode); 
+                }
+                setErrorMessage(''); 
+                setSuccessMessage(''); 
+              }} 
               className="text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-violet-600 transition-colors flex items-center justify-center gap-2 mx-auto"
             >
-              {isLoginMode ? "Need Clinical Access?" : "Existing Practitioner Details"} <ChevronRight className="w-4 h-4" />
+              {isOtpMode ? "Back to Login" : (isLoginMode ? "Need Clinical Access?" : "Existing Practitioner Details")} <ChevronRight className="w-4 h-4" />
             </button>
           </footer>
         </Card>

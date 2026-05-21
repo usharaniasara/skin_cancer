@@ -6,10 +6,15 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from model_utils import load_model, predict_image
-from datetime import timedelta
+import json
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import timedelta, datetime
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
-from models import db, User, Scan
+from models import db, User, Scan, OTPVerification
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -50,6 +55,17 @@ def allowed_file(filename):
 @app.route('/uploads/<path:filename>')
 def serve_upload(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# --- Email Configuration ---
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', 465))
+SMTP_EMAIL = os.getenv('SMTP_EMAIL', '')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+
+def send_otp_email(to_email, otp_code, action):
+    # Hugging Face blocks SMTP, so we bypass actual email sending for the demo.
+    print(f"DEMO MODE: OTP for {to_email} is {otp_code}", flush=True)
+    return True
 
 # --- Core Diagnostic Helper ---
 def process_single_analysis(file, image_url_input, location, current_user_id=None, force=False):
@@ -120,12 +136,33 @@ def register():
         return jsonify({'error': 'Missing required fields'}), 400
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'error': 'User already exists'}), 400
+        
+    otp_code = str(random.randint(100000, 999999))
+    expires_at = datetime.utcnow() + timedelta(minutes=5)
+    
     hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
-    new_user = User(name=data['name'], email=data['email'], password_hash=hashed_password)
-    db.session.add(new_user)
+    user_data = json.dumps({'name': data['name'], 'password_hash': hashed_password})
+    
+    OTPVerification.query.filter_by(email=data['email']).delete()
+    
+    otp_record = OTPVerification(
+        email=data['email'], 
+        otp_code=otp_code, 
+        action='register', 
+        data=user_data, 
+        expires_at=expires_at
+    )
+    db.session.add(otp_record)
     db.session.commit()
-    access_token = create_access_token(identity=str(new_user.id))
-    return jsonify({'message': 'User created successfully', 'token': access_token, 'user': {'name': new_user.name, 'email': new_user.email}}), 201
+    
+    email_sent = send_otp_email(data['email'], otp_code, 'register')
+    
+    return jsonify({
+        'message': 'OTP generated (Demo Mode)', 
+        'requires_otp': True, 
+        'email': data['email'],
+        'demo_otp': otp_code
+    }), 200
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -134,9 +171,68 @@ def login():
         return jsonify({'error': 'Missing required fields'}), 400
     user = User.query.filter_by(email=data['email']).first()
     if user and bcrypt.check_password_hash(user.password_hash, data['password']):
-        access_token = create_access_token(identity=str(user.id))
-        return jsonify({'message': 'Login successful', 'token': access_token, 'user': {'name': user.name, 'email': user.email}}), 200
+        otp_code = str(random.randint(100000, 999999))
+        expires_at = datetime.utcnow() + timedelta(minutes=5)
+        
+        OTPVerification.query.filter_by(email=data['email']).delete()
+        
+        otp_record = OTPVerification(
+            email=data['email'], 
+            otp_code=otp_code, 
+            action='login', 
+            expires_at=expires_at
+        )
+        db.session.add(otp_record)
+        db.session.commit()
+        
+        email_sent = send_otp_email(data['email'], otp_code, 'login')
+        
+        return jsonify({
+            'message': 'OTP generated (Demo Mode)', 
+            'requires_otp': True, 
+            'email': data['email'],
+            'demo_otp': otp_code
+        }), 200
+        
     return jsonify({'error': 'Invalid credentials'}), 401
+
+@app.route('/api/verify-otp', methods=['POST'])
+def verify_otp():
+    data = request.get_json()
+    if not data or not data.get('email') or not data.get('otp_code'):
+        return jsonify({'error': 'Missing email or OTP'}), 400
+        
+    otp_record = OTPVerification.query.filter_by(
+        email=data['email'], 
+        otp_code=data['otp_code']
+    ).order_by(OTPVerification.created_at.desc()).first()
+    
+    if not otp_record:
+        return jsonify({'error': 'Invalid OTP'}), 401
+        
+    if datetime.utcnow() > otp_record.expires_at:
+        return jsonify({'error': 'OTP has expired'}), 401
+        
+    if otp_record.action == 'register':
+        user_data = json.loads(otp_record.data)
+        new_user = User(name=user_data['name'], email=otp_record.email, password_hash=user_data['password_hash'])
+        db.session.add(new_user)
+        db.session.commit()
+        user = new_user
+    else: 
+        user = User.query.filter_by(email=otp_record.email).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+            
+    OTPVerification.query.filter_by(email=data['email']).delete()
+    db.session.commit()
+    
+    access_token = create_access_token(identity=str(user.id))
+    return jsonify({
+        'message': 'Verification successful', 
+        'token': access_token, 
+        'user': {'name': user.name, 'email': user.email}
+    }), 200
 
 @app.route('/api/user', methods=['GET', 'PUT'])
 @jwt_required()

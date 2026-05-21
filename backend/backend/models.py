@@ -21,3 +21,12 @@ class Scan(db.Model):
     location = db.Column(db.String(100)) # Added: Clinical body location
     image_url = db.Column(db.String(255)) # Persistent clinical image reference
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class OTPVerification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), nullable=False)
+    otp_code = db.Column(db.String(6), nullable=False)
+    action = db.Column(db.String(20), nullable=False)
+    data = db.Column(db.Text, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

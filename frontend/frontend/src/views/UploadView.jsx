@@ -57,14 +57,23 @@ export function UploadView({ setActiveView, authToken, onScanComplete }) {
         video: { facingMode: cameraFacing }
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
       setIsCameraActive(true);
     } catch (error) {
       console.error("Camera access error:", error);
     }
   }, [cameraFacing]);
+
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [isCameraActive, streamRef.current]);
+
+  useEffect(() => {
+    if (isCameraActive) {
+      startCamera();
+    }
+  }, [cameraFacing, startCamera]);
 
   const stopCamera = () => {
     if (streamRef.current) {
