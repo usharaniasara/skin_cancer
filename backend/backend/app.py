@@ -63,9 +63,30 @@ SMTP_EMAIL = os.getenv('SMTP_EMAIL', '')
 SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
 
 def send_otp_email(to_email, otp_code, action):
-    # Hugging Face blocks SMTP, so we bypass actual email sending for the demo.
-    print(f"DEMO MODE: OTP for {to_email} is {otp_code}", flush=True)
-    return True
+    try:
+        import requests
+        script_url = "https://script.google.com/macros/s/AKfycbwfKNoiabvw4NDWjUukwwm8FYWkDENu6nnIm-dWoo-yVx0Z3IGSCF2elHbdKCxthc8p/exec"
+        action_text = "registration" if action == 'register' else "login"
+        body = f"Your verification code for {action_text} is: {otp_code}\n\nThis code will expire in 5 minutes."
+        
+        payload = {
+            "to": to_email,
+            "subject": "Your Dermisyn Clinical Portal Verification Code",
+            "body": body
+        }
+        
+        print(f"Sending OTP via Google Script to {to_email}...", flush=True)
+        response = requests.post(script_url, json=payload, timeout=15)
+        
+        if response.status_code == 200:
+            print("Email sent successfully via Google Script!", flush=True)
+            return True
+        else:
+            print(f"Failed to send email. Status: {response.status_code}", flush=True)
+            return False
+    except Exception as e:
+        print(f"Error sending email via Google Script: {e}", flush=True)
+        return False
 
 # --- Core Diagnostic Helper ---
 def process_single_analysis(file, image_url_input, location, current_user_id=None, force=False):
@@ -157,12 +178,12 @@ def register():
     
     email_sent = send_otp_email(data['email'], otp_code, 'register')
     
-    return jsonify({
-        'message': 'OTP generated (Demo Mode)', 
-        'requires_otp': True, 
-        'email': data['email'],
-        'demo_otp': otp_code
-    }), 200
+    if not email_sent:
+        OTPVerification.query.filter_by(email=data['email']).delete()
+        db.session.commit()
+        return jsonify({'error': 'Failed to send OTP email.'}), 500
+    
+    return jsonify({'message': 'OTP sent to email', 'requires_otp': True, 'email': data['email']}), 200
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -187,12 +208,12 @@ def login():
         
         email_sent = send_otp_email(data['email'], otp_code, 'login')
         
-        return jsonify({
-            'message': 'OTP generated (Demo Mode)', 
-            'requires_otp': True, 
-            'email': data['email'],
-            'demo_otp': otp_code
-        }), 200
+        if not email_sent:
+            OTPVerification.query.filter_by(email=data['email']).delete()
+            db.session.commit()
+            return jsonify({'error': 'Failed to send OTP email.'}), 500
+            
+        return jsonify({'message': 'OTP sent to email', 'requires_otp': True, 'email': data['email']}), 200
         
     return jsonify({'error': 'Invalid credentials'}), 401
 

@@ -55,13 +55,7 @@ export function AuthView({ setAuthToken }) {
       if (response.ok) {
         if (data.requires_otp) {
           setIsOtpMode(true);
-          
-          if (data.demo_otp) {
-            setOtpCode(data.demo_otp);
-            setSuccessMessage(`Demo Mode: OTP auto-filled (${data.demo_otp})`);
-          } else {
-            setSuccessMessage(data.message || 'OTP sent to your email.');
-          }
+          setSuccessMessage(data.message || 'OTP sent to your email.');
         } else {
           setAuthToken(data.token);
         }
